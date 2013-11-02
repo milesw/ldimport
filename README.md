@@ -52,6 +52,10 @@ Usage
 7. Enter a list of URIs for resources you want to import.
 8. Run the import.
 
+### Feeds mappings screen:
+
+![Feeds UI screenshot](https://github.com/milesw/ldimport/blob/docs/ldimport_mappings.png?raw=true)
+
 Extending the module
 --------------------
 
