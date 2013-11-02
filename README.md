@@ -1,5 +1,5 @@
-Linked Data Import module for Drupal 7
-======================================
+Linked Data Import module
+=========================
 
 This module defines plugins for the Feeds module that let you turn remote linked data content into Drupal entities, such as nodes and taxonomy terms. It can be used for either a one-time import or periodic imports.
 
@@ -54,7 +54,7 @@ Usage
 
 ### Feeds mappings screen:
 
-![Feeds UI screenshot](https://github.com/milesw/ldimport/blob/docs/ldimport_mappings.png?raw=true)
+> ![Feeds UI screenshot](https://github.com/milesw/ldimport/blob/docs/ldimport_mappings.png?raw=true)
 
 Extending the module
 --------------------
