@@ -61,7 +61,11 @@ Extending the module
 
 The module can be extended by [creating a new Feeds fetcher plugin](http://drupal.org/node/622700). The fetcher is responsible for coming up with a list of URIs to be imported. That list could come from a flat file, a SPARQL endpoint, a private web service, etc. The only requirement is that your class extending FeedsFetcherResult includes a getList() method.
 
-Credit
-------
+### Examples:
+
+[VIVO plugins for Linked Data Import](https://github.com/milesw/ldimport_vivo)
+
+Credits
+-------
 
 This module is the result of work done at Cornell University's Albert R. Mann Library to bring content from Cornell's VIVO database into Drupal.
