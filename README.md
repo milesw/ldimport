@@ -29,7 +29,7 @@ Installation
 2. Enable the feeds_ui module.
 3. Download and enable the Libraries API module.
 4. Download and enable the ldimport module.
-5. Download the ARC2 library. Unpack it so the path to ARC2.php is: sites/<sitename>/libraries/ARC2/arc/ARC2.php
+5. Download the ARC2 library. Unpack it so the path to ARC2.php is: `sites/<sitename>/libraries/ARC2/arc/ARC2.php`
 
 or via Drush:
 ```
@@ -47,7 +47,7 @@ Usage
 2. Choose Linked Data Fetcher as the Fetcher plugin.
 3. Choose Linked Data Parser as the Parser plugin.
 4. Choose any Processor plugin.
-5. Add mappings from linked data to Drupal fields under Processor / Mapping. Be sure to include at least one unique mapping (e.g. URI → Feeds URL, or URI → Feeds GUID). There are two special mapping sources: "URI" and "Label". Beyond those, use the full predicate URI as the mapping source. Separate predicate URIs with empty brackets (e.g. " [] ") to map properties from related individuals.
+5. Add mappings from linked data to Drupal fields under Processor / Mapping. Be sure to include at least one unique mapping (e.g. URI → Feeds URL, or URI → Feeds GUID). There are two special mapping sources: "URI" and "Label". Beyond those, use the full predicate URI as the mapping source. Separate predicate URIs with spaces and empty brackets (" [] ") to map properties from related individuals.
 6. Visit /import and click on your importer.
 7. Enter a list of URIs for resources you want to import.
 8. Run the import.
