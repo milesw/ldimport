@@ -1,7 +1,7 @@
 Linked Data Import module
 =========================
 
-This module defines plugins for the Feeds module that let you turn remote linked data content into Drupal entities, such as nodes and taxonomy terms. It can be used for either a one-time import or periodic imports.
+This module defines plugins for the Feeds module that let you turn remote linked data resources into Drupal entities, such as nodes and taxonomy terms. It can be used for either a one-time import or periodic imports.
 
 Overview
 ------------
@@ -63,7 +63,7 @@ The module can be extended by [creating a new Feeds fetcher plugin](http://drupa
 
 ### Examples:
 
-[VIVO plugins for Linked Data Import](https://github.com/milesw/ldimport_vivo)
+- [VIVO plugins for Linked Data Import](https://github.com/milesw/ldimport_vivo)
 
 Credits
 -------
