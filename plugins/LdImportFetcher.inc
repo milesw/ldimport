@@ -46,7 +46,7 @@ class LdImportFetcher extends FeedsFetcher {
       '#type' => 'textarea',
       '#title' => t('URI List'),
       '#description' => t('Enter a list of URIs for resources to be imported. Place each URI on a separate line.'),
-      '#default_value' => isset($source_config['list']) ? $source_config['list'] : '',
+      '#default_value' => isset($source_config['uri_list']) ? $source_config['uri_list'] : '',
       '#rows' => 15,
     );
     return $form;
