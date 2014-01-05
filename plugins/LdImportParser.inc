@@ -21,7 +21,7 @@ class LdImportParser extends FeedsParser {
     $state->total = count($uri_list);
 
     $start = ($state->pointer) ? $state->pointer : 0;
-    $limit = $source->importer->getLimit();
+    $limit = $this->config['batch_limit'];
 
     $items = array();
 
@@ -121,6 +121,7 @@ class LdImportParser extends FeedsParser {
   public function configDefaults() {
     return array(
       'use_caching' => 0,
+      'batch_limit' => 10,
     );
   }
 
@@ -135,6 +136,23 @@ class LdImportParser extends FeedsParser {
       '#description' => t('Cache requested linked data between feed items. This can be problematic if the server returns data for resources other than the requested URI.'),
       '#default_value' => $this->config['use_caching'],
     );
+    $form['batch_limit'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Batch limit'),
+      '#description' => t('How many items to retrieve in each Batch API pass. Keeping this low helps to avoid timeouts.'),
+      '#default_value' => $this->config['batch_limit'],
+      '#size' => 3,
+    );
     return $form;
+  }
+
+  /**
+   * Parser settings form validation.
+   */
+  public function configFormValidate(&$values) {
+    $batch_limit = $values['batch_limit'];
+    if (!is_numeric($batch_limit) || intval($batch_limit) != $batch_limit || $batch_limit <= 0) {
+      form_set_error('batch_limit', t('Only positive integers are allowed.'));
+    }
   }
 }
