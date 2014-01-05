@@ -47,4 +47,13 @@ class LdImportItem {
     }
     return array_values($items);
   }
+
+  /**
+   * Omit cached data from $this->arc when serializing. This leads to accurate
+   * hashing for FeedsProcessor::hash().
+   */
+  public function __sleep() {
+    $this->props = $this->arc->getProps(NULL, $this->uri);
+    return array('uri', 'props');
+  }
 }
