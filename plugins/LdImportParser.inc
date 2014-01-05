@@ -24,7 +24,8 @@ class LdImportParser extends FeedsParser {
     $limit = $source->importer->getLimit();
 
     $items = array();
-    $arc = ldimport_get_arc();
+
+    $arc = ($this->config['use_caching']) ? ldimport_get_arc() : NULL;
 
     // Run through URIs until we hit the limit or finish the list.
     for ($i = $start; $i < count($uri_list) && count($items) < $limit; $i++) {
@@ -113,4 +114,27 @@ class LdImportParser extends FeedsParser {
     return FALSE;
   }
 
+
+  /**
+   * Default settings.
+   */
+  public function configDefaults() {
+    return array(
+      'use_caching' => 0,
+    );
+  }
+
+  /**
+   * Parser settings form.
+   */
+  public function configForm(&$form_state) {
+    $form = array();
+    $form['use_caching'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Cache requested data'),
+      '#description' => t('Cache requested linked data between feed items. This can be problematic if the server returns data for resources other than the requested URI.'),
+      '#default_value' => $this->config['use_caching'],
+    );
+    return $form;
+  }
 }
