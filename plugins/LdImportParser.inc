@@ -19,33 +19,38 @@ class LdImportParser extends FeedsParser {
 
     $state = $source->state(FEEDS_PARSE);
     $state->total = count($uri_list);
-
     $start = ($state->pointer) ? $state->pointer : 0;
     $limit = $this->config['batch_limit'];
 
-    $items = array();
-
     $arc = ($this->config['use_caching']) ? ldimport_get_arc() : NULL;
+
+    $items = array();
 
     // Run through URIs until we hit the limit or finish the list.
     for ($i = $start; $i < count($uri_list) && count($items) < $limit; $i++) {
 
       $item = new LdImportItem($uri_list[$i], $arc, $GLOBALS['language']->language);
 
-      // Only add this item for processing if it returns data.
-      if ($item->hasData()) {
+      if (!$this->config['pre_fetch']) {
         $items[] = $item;
         $state->created++;
       }
       else {
-        $errors = $item->arc->getErrors();
-        if ($errors) {
-          watchdog('ldimport', 'Importer %id failed importing %uri. The following errors were encountered: @errors', array('%id' => $source->importer->id, '%uri' => $item->uri, '@errors' => implode(' | ', $errors)));
+        // Only add this item for processing if it returns data.
+        if ($item->hasData()) {
+          $items[] = $item;
+          $state->created++;
         }
         else {
-          watchdog('ldimport', 'Importer %id failed importing %uri. No data was available.', array('%id' => $source->importer->id, '%uri' => $item->uri));
+          $errors = $item->arc->getErrors();
+          if ($errors) {
+            watchdog('ldimport', 'Importer %id failed importing %uri. The following errors were encountered: @errors', array('%id' => $source->importer->id, '%uri' => $item->uri, '@errors' => implode(' | ', $errors)));
+          }
+          else {
+            watchdog('ldimport', 'Importer %id failed importing %uri. No data was available.', array('%id' => $source->importer->id, '%uri' => $item->uri));
+          }
+          $state->failed++;
         }
-        $state->failed++;
       }
 
       // Update progress and pointer.
@@ -122,6 +127,7 @@ class LdImportParser extends FeedsParser {
     return array(
       'use_caching' => 0,
       'batch_limit' => 10,
+      'pre_fetch' => TRUE,
     );
   }
 
@@ -142,6 +148,12 @@ class LdImportParser extends FeedsParser {
       '#description' => t('How many items to retrieve in each Batch API pass. Keeping this low helps to avoid timeouts.'),
       '#default_value' => $this->config['batch_limit'],
       '#size' => 3,
+    );
+    $form['pre_fetch'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Pre-fetch items'),
+      '#description' => t('Fetch items during the parsing stage. Items will only be processed when property data is available. The only reason to turn this off is to save HTTP requests when using "Do not update existing nodes" for the processor.'),
+      '#default_value' => $this->config['pre_fetch'],
     );
     return $form;
   }
