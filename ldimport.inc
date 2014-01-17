@@ -21,7 +21,6 @@ class LdImportItem {
     $this->uri = $uri;
     $this->arc = ($arc) ? $arc : ARC2::getResource();
     $this->language = $language;
-    // $this->label = ($values = $this->values(LDIMPORT_LABEL_URI)) ? $values[0]['value'] : $this->arc->extractTermLabel($uri);
   }
 
   public function __get($name) {
@@ -33,7 +32,7 @@ class LdImportItem {
 
   public function getLabel() {
     if (!isset($this->label)) {
-      $this->label = ($values = $this->values(LDIMPORT_LABEL_URI)) ? $values[0]['value'] : $this->arc->extractTermLabel($uri);
+      $this->label = ($values = $this->values(LDIMPORT_LABEL_URI)) ? $values[0]['value'] : $this->arc->extractTermLabel($this->uri);
     }
     return $this->label;
   }
