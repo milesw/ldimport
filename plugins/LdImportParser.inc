@@ -88,8 +88,8 @@ class LdImportParser extends FeedsParser {
    */
   public function extractPropertyValues(LdImportItem $item, $predicates) {
     $values = array();
-
     $predicate = current($predicates);
+    $arc = ($this->config['use_caching']) ? $item->arc : NULL;
 
     // Only proceed if there is data for this predicate.
     if ($property_values = $item->values($predicate)) {
@@ -98,7 +98,7 @@ class LdImportParser extends FeedsParser {
 
       foreach ($property_values as $property_value) {
         if ($next_predicate && $property_value['type'] == 'uri') {
-          $next_item = new LdImportItem($property_value['value'], $item->arc, $item->language);
+          $next_item = new LdImportItem($property_value['value'], $arc, $item->language);
           $values = array_merge($values, $this->extractPropertyValues($next_item, $predicates));
         }
         else if (!$next_predicate) {
