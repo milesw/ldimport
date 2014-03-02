@@ -49,11 +49,11 @@ class LdImportParser extends FeedsParser {
 
       $attempts = !empty($this->config['retries']) ? $this->config['retries'] : 1;
 
-      while ($attempts > 0) {
+      while ($attempts >= 0) {
         $uri = $uri_list[$i];
         $item = new LdImportItem($uri, $arc, $GLOBALS['language']->language);
 
-        if (empty($this->config['pre_fetch']) || $item->hasData()) {
+        if ($attempts && (empty($this->config['pre_fetch']) || $item->hasData())) {
           $state->created++;
           $state->parsed++;
           $state->pointer = $i + 1;
@@ -62,12 +62,12 @@ class LdImportParser extends FeedsParser {
         }
         elseif (!$attempts) {
           if ($errors = $item->arc->getErrors()) {
-            $message = t('Failed importing %uri. The following errors were encountered: @errors', array('%uri' => $uri, '@errors' => implode(' | ', $errors)));
+            $message = t('Failed importing %uri after %n attempts. The following errors were encountered: @errors', array('%uri' => $uri, '@errors' => implode(' | ', $errors), '%n' => $this->config['retries']));
           }
           else {
-            $message = t('Failed importing %uri. No data was available.', array('%uri' => $uri));
+            $message = t('Failed importing %uri after %n attempts. No data was returned.', array('%uri' => $uri, '%n' => $this->config['retries']));
           }
-          $source->log('import', $message, array(), WATCHDOG_ERROR);
+          $source->log('import', $message, array(), WATCHDOG_WARNING);
           $state->failed++;
           $state->pointer = $i + 1;
         }
