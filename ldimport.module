@@ -94,11 +94,11 @@ function ldimport_registry_files_alter(&$files, $modules) {
  * The ARC2_Resource class caches fetched data. By passing around a
  * single instance we can potentially save a lot of HTTP requests.
  */
-function ldimport_get_arc() {
+function ldimport_get_arc($config = array()) {
   $arc = &drupal_static(__FUNCTION__);
   if (!isset($arc)) {
     libraries_load('ARC2');
-    $arc = ARC2::getResource();
+    $arc = ARC2::getResource($config);
   }
   return $arc;
 }

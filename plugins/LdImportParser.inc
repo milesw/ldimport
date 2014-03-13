@@ -19,46 +19,67 @@ class LdImportParser extends FeedsParser {
 
     $state = $source->state(FEEDS_PARSE);
     $state->total = count($uri_list);
+    $state->parsed = 0;
+    $state->retry = array();
+
+    return new LdimportParserResult($uri_list, $this, $source);
+  }
+
+  /**
+   * Pull the next item off the list to give to the processor.
+   *
+   * This is called by LdimportParserResult::shiftItem(). By handing off items
+   * one at a time we reduce the chances of items getting lost when we hit
+   * maximum execution times.
+   *
+   * Because we batch at the parser level, items handed to the processor are
+   * considered "done" even if the processor fails to finish.
+   */
+  public function getItem($uri_list, $source) {
+    $state = $source->state(FEEDS_PARSE);
+
+    $arc_config = array(
+      'reader_timeout' => $this->config['timeout'],
+    );
+    $arc = ($this->config['use_caching']) ? ldimport_get_arc($arc_config) : ARC2::getResource($arc_config);
+
     $start = ($state->pointer) ? $state->pointer : 0;
     $limit = $this->config['batch_limit'];
-
-    $arc = ($this->config['use_caching']) ? ldimport_get_arc() : NULL;
-
-    $items = array();
+    $parsed = $state->parsed;
 
     // Run through URIs until we hit the limit or finish the list.
-    for ($i = $start; $i < count($uri_list) && count($items) < $limit; $i++) {
+    for ($i = $start; $i < count($uri_list) && $parsed < $limit; $i++) {
 
-      $item = new LdImportItem($uri_list[$i], $arc, $GLOBALS['language']->language);
+      $attempts = !empty($this->config['retries']) ? $this->config['retries'] : 1;
 
-      if (!$this->config['pre_fetch']) {
-        $items[] = $item;
-        $state->created++;
-      }
-      else {
-        // Only add this item for processing if it returns data.
-        if ($item->hasData()) {
-          $items[] = $item;
+      while ($attempts >= 0) {
+        $uri = $uri_list[$i];
+        $item = new LdImportItem($uri, $arc, $GLOBALS['language']->language);
+
+        if ($attempts && (empty($this->config['pre_fetch']) || $item->hasData())) {
           $state->created++;
+          $state->parsed++;
+          $state->pointer = $i + 1;
+          $state->progress($state->total, $state->created + $state->failed);
+          return $item;
         }
-        else {
-          $errors = $item->arc->getErrors();
-          if ($errors) {
-            watchdog('ldimport', 'Importer %id failed importing %uri. The following errors were encountered: @errors', array('%id' => $source->importer->id, '%uri' => $item->uri, '@errors' => implode(' | ', $errors)));
+        elseif (!$attempts) {
+          if ($errors = $item->arc->getErrors()) {
+            $message = t('Failed importing %uri after %n attempts. The following errors were encountered: @errors', array('%uri' => $uri, '@errors' => implode(' | ', $errors), '%n' => $this->config['retries']));
           }
           else {
-            watchdog('ldimport', 'Importer %id failed importing %uri. No data was available.', array('%id' => $source->importer->id, '%uri' => $item->uri));
+            $message = t('Failed importing %uri after %n attempts. No data was returned.', array('%uri' => $uri, '%n' => $this->config['retries']));
           }
+          $source->log('import', $message, array(), WATCHDOG_WARNING);
           $state->failed++;
+          $state->pointer = $i + 1;
         }
-      }
 
-      // Update progress and pointer.
-      $state->progress($state->total, $state->created + $state->failed);
-      $state->pointer = $i + 1;
+        $attempts--;
+      }
     }
 
-    return new FeedsParserResult($items);
+    return NULL;
   }
 
   /**
@@ -128,6 +149,8 @@ class LdImportParser extends FeedsParser {
       'use_caching' => 0,
       'batch_limit' => 10,
       'pre_fetch' => TRUE,
+      'retries' => 3,
+      'timeout' => 30,
     );
   }
 
@@ -155,6 +178,20 @@ class LdImportParser extends FeedsParser {
       '#description' => t('Fetch items during the parsing stage. Items will only be processed when property data is available. The only reason to turn this off is to save HTTP requests when using "Do not update existing nodes" for the processor.'),
       '#default_value' => $this->config['pre_fetch'],
     );
+    $form['retries'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Retry limit'),
+      '#description' => t('How many items to retry failed requests for URIs.'),
+      '#default_value' => $this->config['retries'],
+      '#size' => 3,
+    );
+    $form['timeout'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Timeout'),
+      '#description' => t('Amount of time, in seconds, to wait for linked data requests.'),
+      '#default_value' => $this->config['timeout'],
+      '#size' => 3,
+    );
     return $form;
   }
 
@@ -166,5 +203,22 @@ class LdImportParser extends FeedsParser {
     if (!is_numeric($batch_limit) || intval($batch_limit) != $batch_limit || $batch_limit <= 0) {
       form_set_error('batch_limit', t('Only positive integers are allowed.'));
     }
+  }
+}
+
+/**
+ * Class definition for LdimportParserResult.
+ */
+class LdimportParserResult extends FeedsParserResult {
+
+  public function __construct($uri_list = array(), FeedsParser $parser, FeedsSource $source) {
+    $this->items = $uri_list;
+    $this->parser = $parser;
+    $this->source = $source;
+  }
+
+  public function shiftItem() {
+    $this->current_item = $this->parser->getItem($this->items, $this->source);
+    return $this->current_item;
   }
 }
