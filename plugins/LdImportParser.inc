@@ -38,7 +38,10 @@ class LdImportParser extends FeedsParser {
   public function getItem($uri_list, $source) {
     $state = $source->state(FEEDS_PARSE);
 
-    $arc = ($this->config['use_caching']) ? ldimport_get_arc() : NULL;
+    $arc_config = array(
+      'reader_timeout' => $this->config['timeout'],
+    );
+    $arc = ($this->config['use_caching']) ? ldimport_get_arc($arc_config) : ARC2::getResource($arc_config);
 
     $start = ($state->pointer) ? $state->pointer : 0;
     $limit = $this->config['batch_limit'];
@@ -147,6 +150,7 @@ class LdImportParser extends FeedsParser {
       'batch_limit' => 10,
       'pre_fetch' => TRUE,
       'retries' => 3,
+      'timeout' => 30,
     );
   }
 
@@ -179,6 +183,13 @@ class LdImportParser extends FeedsParser {
       '#title' => t('Retry limit'),
       '#description' => t('How many items to retry failed requests for URIs.'),
       '#default_value' => $this->config['retries'],
+      '#size' => 3,
+    );
+    $form['timeout'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Timeout'),
+      '#description' => t('Amount of time, in seconds, to wait for linked data requests.'),
+      '#default_value' => $this->config['timeout'],
       '#size' => 3,
     );
     return $form;
