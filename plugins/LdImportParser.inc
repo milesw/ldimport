@@ -14,7 +14,23 @@ class LdImportParser extends FeedsParser {
    * Implements FeedsParser::parse().
    */
   public function parse(FeedsSource $source, FeedsFetcherResult $fetcher_result) {
-    $uri_list = $fetcher_result->getList();
+    $uri_list = array();
+
+    // Ideally fetcher is designed to provide a list of URIs. If not, we still
+    // try and support other fetchers, expecting URIs on separate lines.
+    if (method_exists($fetcher_result, 'getList')) {
+      $uri_list = $fetcher_result->getList();
+    }
+    else {
+      $raw = $fetcher_result->getRaw();
+      foreach (explode("\n", $raw) as $uri) {
+        $uri = trim($uri);
+        if ($uri && valid_url($uri, TRUE)) {
+          $uri_list[$uri] = $uri;
+        }
+      }
+    }
+
     $uri_list = array_values($uri_list);
 
     $state = $source->state(FEEDS_PARSE);
