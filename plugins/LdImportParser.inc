@@ -104,16 +104,11 @@ class LdImportParser extends FeedsParser {
   public function getSourceElement(FeedsSource $source, FeedsParserResult $result, $element_key) {
     $item = $result->currentItem();
 
-    $value = '';
-    $predicates = explode(' [] ', $element_key);
+    $predicates = $this->getPredicates($element_key);
 
-    if ($element_key == 'URI') {
-      $value = $item->uri;
-    }
-    else if ($element_key == 'Label') {
-      $value = $item->label;
-    }
-    else if ($values = $this->extractPropertyValues($item, $predicates)) {
+    $value = '';
+
+    if ($values = $this->extractPropertyValues($item, $predicates)) {
       $value = (count($values) == 1) ? reset($values) : $values;
     }
 
@@ -125,26 +120,76 @@ class LdImportParser extends FeedsParser {
    */
   public function extractPropertyValues(LdImportItem $item, $predicates) {
     $values = array();
-    $predicate = current($predicates);
+
+    $predicate = array_shift($predicates);
+
+    // Handle special mapping keywords "URI" and "Label".
+    if (strtolower($predicate['uri']) == 'uri') {
+      $values[] = $item->uri;
+      return $values;
+    }
+    elseif (strtolower($predicate['uri']) == 'label') {
+      $values[] = $item->label;
+      return $values;
+    }
+
     $arc = ($this->config['use_caching']) ? $item->arc : NULL;
 
     // Only proceed if there is data for this predicate.
-    if ($property_values = $item->values($predicate)) {
+    if ($property_values = $item->values($predicate['uri'])) {
 
-      $next_predicate = next($predicates);
+      $next_predicate = current($predicates);
 
       foreach ($property_values as $property_value) {
+
+        // Recurse into next predicate when there is one.
         if ($next_predicate && $property_value['type'] == 'uri') {
           $next_item = new LdImportItem($property_value['value'], $arc, $item->language);
-          $values = array_merge($values, $this->extractPropertyValues($next_item, $predicates));
+
+          if (!$predicate['filters'] || ($predicate['filters'] && $next_item->hasAnyType($predicate['filters']))) {
+            $values = array_merge($values, $this->extractPropertyValues($next_item, $predicates));
+          }
         }
-        else if (!$next_predicate) {
+        // Add values.
+        elseif (!$next_predicate) {
           $values[] = $property_value['value'];
         }
       }
     }
 
     return $values;
+  }
+
+  /**
+   * Turns a mapping string into an array of predicates, keyed by predicate URI,
+   * with an array of rdf:type URIs as values.
+   */
+  public function getPredicates($string) {
+    $predicates = array();
+
+    $parts = explode(' ', $string);
+
+    foreach ($parts as $k => $part) {
+
+      // Even keys should always be predicate URIs.
+      if ($k % 2 === 0) {
+
+        $next_part = $k + 1;
+
+        $types = '';
+        if (isset($parts[$next_part])) {
+          $types = $parts[$next_part];
+          $types = strtr($types, array('[' => '', ']' => ''));
+        }
+
+        $predicate = array();
+        $predicate['uri'] = $part;
+        $predicate['filters'] = !empty($types) ? explode('|', $types) : array();
+        $predicates[] = $predicate;
+      }
+    }
+
+    return $predicates;
   }
 
   /**

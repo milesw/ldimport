@@ -41,6 +41,16 @@ class LdImportItem {
     return ($this->arc->getProps(NULL, $this->uri)) ? TRUE : FALSE;
   }
 
+  public function hasAnyType($uris) {
+    $type_uris = is_array($uris) ? $uris : array($uris);
+    foreach ($this->values(LDIMPORT_TYPE_URI) as $item) {
+      if ($item['type'] == 'uri' && in_array($item['value'], $type_uris)) {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  }
+
   public function values($prop_uri) {
     $values = $this->arc->getProps($prop_uri, $this->uri);
     return ($values) ? $this->filterLanguage($values) : array();

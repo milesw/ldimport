@@ -6,6 +6,7 @@
  */
 
 define('LDIMPORT_LABEL_URI', 'http://www.w3.org/2000/01/rdf-schema#label');
+define('LDIMPORT_TYPE_URI', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type');
 
 /**
 * Implements hook_feeds_plugins().
