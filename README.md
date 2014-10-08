@@ -6,11 +6,11 @@ This module defines plugins for the Feeds module that let you turn remote linked
 Overview
 ------------
 
-Most of the Drupal functionality comes from the Feeds module itself. All linked data fetching and parsing is handled by the ARC2 library.
+Most of the Drupal functionality comes from the Feeds module itself. All linked data fetching and parsing is handled by the Graphite and ARC2 libraries.
 
 1. You configure a Feeds importer
 2. You define a list of resource URIs to import
-3. ARC2 fetches RDF data for each resource via content negotiation
+3. Graphite fetches RDF data for each resource via content negotiation
 4. Feeds creates one Drupal entity for each resource
 5. Feeds maps RDF properties to Drupal fields for each entity
 
@@ -20,6 +20,7 @@ Requirements
 - Drupal 7.x
 - Feeds module
 - Libraries module
+- Graphite library
 - ARC2 library
 
 Installation
@@ -30,6 +31,7 @@ Installation
 3. Download and enable the Libraries API module.
 4. Download and enable the ldimport module.
 5. Download the ARC2 library. Unpack it so the path to ARC2.php is: `sites/<sitename>/libraries/ARC2/arc/ARC2.php`
+5. Download the Graphite library. Unpack it so the path to Graphite.php is: `sites/<sitename>/libraries/Graphite/Graphite.php`
 
 or via Drush:
 ```

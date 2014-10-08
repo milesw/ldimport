@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Class definition for Linked Data Import parser plugin.
@@ -54,14 +53,19 @@ class LdImportParser extends FeedsParser {
   public function getItem($uri_list, $source) {
     $state = $source->state(FEEDS_PARSE);
 
-    $arc_config = array(
-      'reader_timeout' => $this->config['timeout'],
-    );
-    $arc = ($this->config['use_caching']) ? ldimport_get_arc($arc_config) : ARC2::getResource($arc_config);
-
     $start = ($state->pointer) ? $state->pointer : 0;
     $limit = $this->config['batch_limit'];
     $parsed = $state->parsed;
+
+    $graph = new Graphite();
+    $graph->setLang($GLOBALS['language']->language);
+    $graph->setARC2Config(array('reader_timeout' => $this->config['timeout']));
+
+    if ($this->config['use_caching']) {
+      $cache_directory = file_directory_temp() . '/graphite';
+      file_prepare_directory($cache_directory, FILE_CREATE_DIRECTORY);
+      $graph->cacheDir($cache_directory, $this->config['cache_time']);
+    }
 
     // Run through URIs until we hit the limit or finish the list.
     for ($i = $start; $i < count($uri_list) && $parsed < $limit; $i++) {
@@ -70,9 +74,9 @@ class LdImportParser extends FeedsParser {
 
       while ($attempts >= 0) {
         $uri = $uri_list[$i];
-        $item = new LdImportItem($uri, $arc, $GLOBALS['language']->language);
+        $item = $graph->resource($uri);
 
-        if ($attempts && (empty($this->config['pre_fetch']) || $item->hasData())) {
+        if ($attempts && (empty($this->config['pre_fetch']) || $item->load())) {
           $state->created++;
           $state->parsed++;
           $state->pointer = $i + 1;
@@ -80,12 +84,7 @@ class LdImportParser extends FeedsParser {
           return $item;
         }
         elseif (!$attempts) {
-          if ($errors = $item->arc->getErrors()) {
-            $message = t('Failed importing %uri after %n attempts. The following errors were encountered: @errors', array('%uri' => $uri, '@errors' => implode(' | ', $errors), '%n' => $this->config['retries']));
-          }
-          else {
-            $message = t('Failed importing %uri after %n attempts. No data was returned.', array('%uri' => $uri, '%n' => $this->config['retries']));
-          }
+          $message = t('Failed importing %uri after %n attempts. No data was returned.', array('%uri' => $uri, '%n' => $this->config['retries']));
           $source->log('import', $message, array(), WATCHDOG_WARNING);
           $state->failed++;
           $state->pointer = $i + 1;
@@ -118,41 +117,55 @@ class LdImportParser extends FeedsParser {
   /**
    * Recursively retrieves data for each predicate in a mapping source.
    */
-  public function extractPropertyValues(LdImportItem $item, $predicates) {
-    $values = array();
+  public function extractPropertyValues(Graphite_Resource $item, $predicates) {
+    // Ensure data has been loaded. It might not be if pre_fetch was disabled.
+    $item->load();
 
+    $values = array();
     $predicate = array_shift($predicates);
 
     // Handle special mapping keywords "URI" and "Label".
     if (strtolower($predicate['uri']) == 'uri') {
-      $values[] = $item->uri;
+      $values[] = $item->toString();
       return $values;
     }
     elseif (strtolower($predicate['uri']) == 'label') {
-      $values[] = $item->label;
+      // Try to get the label property.
+      if (!$item->label()->isNull()) {
+        $values[] = $item->label()->toString();
+      }
+      // If there is no actual label, use ARC2's helper method to format one
+      // using the local name of the URI.
+      else {
+        $uri = $item->toString();
+        $resource = ARC2::getResource();
+        $resource->setURI($uri);
+        $values[] = $resource->extractTermLabel($uri);
+      }
       return $values;
     }
 
-    $arc = ($this->config['use_caching']) ? $item->arc : NULL;
+    $graph = $item->g;
 
     // Only proceed if there is data for this predicate.
-    if ($property_values = $item->values($predicate['uri'])) {
+    if ($property_values = $item->all($predicate['uri'])) {
 
       $next_predicate = current($predicates);
 
       foreach ($property_values as $property_value) {
 
         // Recurse into next predicate when there is one.
-        if ($next_predicate && $property_value['type'] == 'uri') {
-          $next_item = new LdImportItem($property_value['value'], $arc, $item->language);
+        if ($next_predicate && $property_value instanceof Graphite_Resource) {
+          $next_item = $property_value;
+          $next_item->load();
 
-          if (!$predicate['filters'] || ($predicate['filters'] && $next_item->hasAnyType($predicate['filters']))) {
+          if (!$predicate['filters'] || ($predicate['filters'] && $next_item->isType($predicate['filters']))) {
             $values = array_merge($values, $this->extractPropertyValues($next_item, $predicates));
           }
         }
         // Add values.
         elseif (!$next_predicate) {
-          $values[] = $property_value['value'];
+          $values[] = $property_value->toString();
         }
       }
     }
@@ -207,7 +220,8 @@ class LdImportParser extends FeedsParser {
    */
   public function configDefaults() {
     return array(
-      'use_caching' => 0,
+      'use_caching' => 1,
+      'cache_time' => 60 * 60 * 24 * 7 * 2,
       'batch_limit' => 10,
       'pre_fetch' => TRUE,
       'retries' => 3,
@@ -223,7 +237,7 @@ class LdImportParser extends FeedsParser {
     $form['use_caching'] = array(
       '#type' => 'checkbox',
       '#title' => t('Cache requested data'),
-      '#description' => t('Cache requested linked data between feed items. This can be problematic if the server returns data for resources other than the requested URI.'),
+      '#description' => t('Cache requested linked data during import.'),
       '#default_value' => $this->config['use_caching'],
     );
     $form['batch_limit'] = array(
@@ -236,7 +250,7 @@ class LdImportParser extends FeedsParser {
     $form['pre_fetch'] = array(
       '#type' => 'checkbox',
       '#title' => t('Pre-fetch items'),
-      '#description' => t('Fetch items during the parsing stage. Items will only be processed when property data is available. The only reason to turn this off is to save HTTP requests when using "Do not update existing nodes" for the processor.'),
+      '#description' => t('Fetch items during the parsing stage. Items will only be processed when property data is available.'),
       '#default_value' => $this->config['pre_fetch'],
     );
     $form['retries'] = array(
