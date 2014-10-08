@@ -132,7 +132,7 @@ class LdImportParser extends FeedsParser {
     elseif (strtolower($predicate['uri']) == 'label') {
       // Try to get the label property.
       if (!$item->label()->isNull()) {
-        $values[] = $item->label()->toString();
+        $values[] = $this->convertEncoding($item->label()->toString());
       }
       // If there is no actual label, use ARC2's helper method to format one
       // using the local name of the URI.
@@ -165,7 +165,7 @@ class LdImportParser extends FeedsParser {
         }
         // Add values.
         elseif (!$next_predicate) {
-          $values[] = $property_value->toString();
+          $values[] = $this->convertEncoding($property_value->toString());
         }
       }
     }
@@ -278,6 +278,18 @@ class LdImportParser extends FeedsParser {
     if (!is_numeric($batch_limit) || intval($batch_limit) != $batch_limit || $batch_limit <= 0) {
       form_set_error('batch_limit', t('Only positive integers are allowed.'));
     }
+  }
+
+  /**
+   * Ensures data is encoded properly to avoid SQL errors.
+   *
+   * @see https://www.drupal.org/node/1428272#comment-7349918
+   */
+  private function convertEncoding($data) {
+    if (extension_loaded('mbstring')) {
+      $data = mb_convert_encoding($data, 'UTF-8', 'UTF-8');
+    }
+    return $data;
   }
 }
 
