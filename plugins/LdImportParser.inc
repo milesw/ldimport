@@ -131,8 +131,9 @@ class LdImportParser extends FeedsParser {
     }
     elseif (strtolower($predicate['uri']) == 'label') {
       // Try to get the label property.
-      if (!$item->label()->isNull()) {
-        $values[] = $this->convertEncoding($item->label()->toString());
+      $label = $item->label();
+      if (!$label->isNull() && ($label = trim($label->toString()))) {
+        $values[] = $this->convertEncoding($label);
       }
       // If there is no actual label, use ARC2's helper method to format one
       // using the local name of the URI.
