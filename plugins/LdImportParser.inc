@@ -62,7 +62,7 @@ class LdImportParser extends FeedsParser {
     $graph->setARC2Config(array('reader_timeout' => $this->config['timeout']));
 
     if ($this->config['use_caching']) {
-      $cache_directory = file_directory_temp() . '/graphite';
+      $cache_directory = file_directory_temp() . '/graphite-' . drupal_get_hash_salt();
       file_prepare_directory($cache_directory, FILE_CREATE_DIRECTORY);
       $graph->cacheDir($cache_directory, $this->config['cache_time']);
     }
