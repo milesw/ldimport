@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Class definition for Linked Data Import parser plugin.
@@ -38,6 +37,11 @@ class LdImportParser extends FeedsParser {
     $state->parsed = 0;
     $state->retry = array();
 
+    if ($this->config['debug']) {
+      $message = t('Prepared list of @count URIs to be imported.', array('@count' => count($uri_list)));
+      $source->log('import', $message, array(), WATCHDOG_DEBUG);
+    }
+
     return new LdimportParserResult($uri_list, $this, $source);
   }
 
@@ -54,44 +58,48 @@ class LdImportParser extends FeedsParser {
   public function getItem($uri_list, $source) {
     $state = $source->state(FEEDS_PARSE);
 
-    $arc_config = array(
-      'reader_timeout' => $this->config['timeout'],
-    );
-    $arc = ($this->config['use_caching']) ? ldimport_get_arc($arc_config) : ARC2::getResource($arc_config);
-
     $start = ($state->pointer) ? $state->pointer : 0;
     $limit = $this->config['batch_limit'];
-    $parsed = $state->parsed;
+    $parsed = &$state->parsed;
+
+    $debug = $this->config['debug'];
+    $postpone_requests = empty($this->config['pre_fetch']);
+
+    $graph = new Graphite();
+    $graph->setDebug($debug);
+    $this->setGraphiteConfig($graph);
 
     // Run through URIs until we hit the limit or finish the list.
     for ($i = $start; $i < count($uri_list) && $parsed < $limit; $i++) {
+      $uri = $uri_list[$i];
 
       $attempts = !empty($this->config['retries']) ? $this->config['retries'] : 1;
 
-      while ($attempts >= 0) {
-        $uri = $uri_list[$i];
-        $item = new LdImportItem($uri, $arc, $GLOBALS['language']->language);
+      if ($debug) {
+        $message = t('Attempting to import %uri - item @start of @total.', array('%uri' => $uri, '@start' => $i + 1, '@total' => count($uri_list)));
+        $source->log('import', $message, array(), WATCHDOG_DEBUG);
+      }
 
-        if ($attempts && (empty($this->config['pre_fetch']) || $item->hasData())) {
+      for ($attempts; $attempts > 0; $attempts--) {
+        $item = $graph->resource($uri);
+
+        $has_data = ($postpone_requests) ? TRUE : $this->loadAndLog($item, $source, $debug);
+
+        if ($has_data) {
           $state->created++;
           $state->parsed++;
           $state->pointer = $i + 1;
           $state->progress($state->total, $state->created + $state->failed);
           return $item;
         }
-        elseif (!$attempts) {
-          if ($errors = $item->arc->getErrors()) {
-            $message = t('Failed importing %uri after %n attempts. The following errors were encountered: @errors', array('%uri' => $uri, '@errors' => implode(' | ', $errors), '%n' => $this->config['retries']));
-          }
-          else {
-            $message = t('Failed importing %uri after %n attempts. No data was returned.', array('%uri' => $uri, '%n' => $this->config['retries']));
-          }
+
+        if (!$has_data && $attempts === 1) {
+          $message = t('Failed importing %uri after @n attempts.', array('%uri' => $uri, '@n' => $this->config['retries']));
           $source->log('import', $message, array(), WATCHDOG_WARNING);
           $state->failed++;
           $state->pointer = $i + 1;
+          break;
         }
-
-        $attempts--;
       }
     }
 
@@ -104,16 +112,11 @@ class LdImportParser extends FeedsParser {
   public function getSourceElement(FeedsSource $source, FeedsParserResult $result, $element_key) {
     $item = $result->currentItem();
 
-    $value = '';
-    $predicates = explode(' [] ', $element_key);
+    $predicates = $this->getPredicates($element_key);
 
-    if ($element_key == 'URI') {
-      $value = $item->uri;
-    }
-    else if ($element_key == 'Label') {
-      $value = $item->label;
-    }
-    else if ($values = $this->extractPropertyValues($item, $predicates)) {
+    $value = '';
+
+    if ($values = $this->extractPropertyValues($item, $predicates, $source)) {
       $value = (count($values) == 1) ? reset($values) : $values;
     }
 
@@ -123,28 +126,106 @@ class LdImportParser extends FeedsParser {
   /**
    * Recursively retrieves data for each predicate in a mapping source.
    */
-  public function extractPropertyValues(LdImportItem $item, $predicates) {
+  public function extractPropertyValues(Graphite_Resource $item, $predicates, FeedsSource $source) {
+    $debug = $this->config['debug'] && $this->config['debug_properties'];
+
+    // Ensure data has been loaded. It might not if pre_fetch was disabled.
+    // But if we've already fetched data don't bother logging again.
+    $postpone_requests = empty($this->config['pre_fetch']);
+    if (!$postpone_requests) {
+      $item->load();
+    }
+    else {
+      $this->loadAndLog($item, $source, $this->config['debug']);
+    }
+
     $values = array();
-    $predicate = current($predicates);
-    $arc = ($this->config['use_caching']) ? $item->arc : NULL;
+    $predicate = array_shift($predicates);
+
+    // Handle special mapping keywords "URI" and "Label".
+    if (strtolower($predicate['uri']) == 'uri') {
+      $values[] = $item->toString();
+      return $values;
+    }
+    elseif (strtolower($predicate['uri']) == 'label') {
+      // Try to get the label property.
+      $label = $item->label();
+      if (!$label->isNull() && ($label = trim($label->toString()))) {
+        $values[] = $this->convertEncoding($label);
+      }
+      // If there is no actual label, use ARC2's helper method to format one
+      // using the local name of the URI.
+      else {
+        $uri = $item->toString();
+        $resource = ARC2::getResource();
+        $resource->setURI($uri);
+        $values[] = $resource->extractTermLabel($uri);
+      }
+      return $values;
+    }
 
     // Only proceed if there is data for this predicate.
-    if ($property_values = $item->values($predicate)) {
+    if ($property_values = $item->all($predicate['uri'])) {
 
-      $next_predicate = next($predicates);
+      $next_predicate = current($predicates);
 
       foreach ($property_values as $property_value) {
-        if ($next_predicate && $property_value['type'] == 'uri') {
-          $next_item = new LdImportItem($property_value['value'], $arc, $item->language);
-          $values = array_merge($values, $this->extractPropertyValues($next_item, $predicates));
+
+        // Recurse into next predicate when there is one.
+        if ($next_predicate && $property_value instanceof Graphite_Resource) {
+          $next_item = $property_value;
+
+          if ($debug) {
+            $message = t('Retrieving property data for %uri while handling %predicate', array('@count' => $triples, '%uri' => $next_item->toString(), '%predicate' => $predicate['uri']));
+            $source->log('import', $message, array(), WATCHDOG_DEBUG);
+          }
+
+          $this->loadAndLog($next_item, $source, $debug);
+
+          if (!$predicate['filters'] || ($predicate['filters'] && $next_item->isType($predicate['filters']))) {
+            $values = array_merge($values, $this->extractPropertyValues($next_item, $predicates, $source));
+          }
         }
-        else if (!$next_predicate) {
-          $values[] = $property_value['value'];
+        // Add values.
+        elseif (!$next_predicate) {
+          $values[] = $this->convertEncoding($property_value->toString());
         }
       }
     }
 
     return $values;
+  }
+
+  /**
+   * Turns a mapping string into an array of predicates, keyed by predicate URI,
+   * with an array of rdf:type URIs as values.
+   */
+  public function getPredicates($string) {
+    $predicates = array();
+
+    $parts = explode(' ', $string);
+
+    foreach ($parts as $k => $part) {
+
+      // Even keys should always be predicate URIs.
+      if ($k % 2 === 0) {
+
+        $next_part = $k + 1;
+
+        $types = '';
+        if (isset($parts[$next_part])) {
+          $types = $parts[$next_part];
+          $types = strtr($types, array('[' => '', ']' => ''));
+        }
+
+        $predicate = array();
+        $predicate['uri'] = $part;
+        $predicate['filters'] = !empty($types) ? explode('|', $types) : array();
+        $predicates[] = $predicate;
+      }
+    }
+
+    return $predicates;
   }
 
   /**
@@ -162,11 +243,14 @@ class LdImportParser extends FeedsParser {
    */
   public function configDefaults() {
     return array(
-      'use_caching' => 0,
+      'use_caching' => 1,
+      'cache_time' => 60 * 60 * 24 * 7 * 2,
       'batch_limit' => 10,
       'pre_fetch' => TRUE,
       'retries' => 3,
       'timeout' => 30,
+      'debug' => TRUE,
+      'debug_properties' => TRUE,
     );
   }
 
@@ -178,8 +262,19 @@ class LdImportParser extends FeedsParser {
     $form['use_caching'] = array(
       '#type' => 'checkbox',
       '#title' => t('Cache requested data'),
-      '#description' => t('Cache requested linked data between feed items. This can be problematic if the server returns data for resources other than the requested URI.'),
+      '#description' => t('Cache requested linked data during import.'),
       '#default_value' => $this->config['use_caching'],
+    );
+    $form['cache_time'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Cache time'),
+      '#description' => t('How long to cache data. Enter either seconds or a value for strtotime().'),
+      '#default_value' => $this->config['cache_time'],
+      '#states' => array(
+        'visible' => array(
+          '#edit-use-caching' => array('checked' => TRUE),
+        ),
+      ),
     );
     $form['batch_limit'] = array(
       '#type' => 'textfield',
@@ -191,13 +286,13 @@ class LdImportParser extends FeedsParser {
     $form['pre_fetch'] = array(
       '#type' => 'checkbox',
       '#title' => t('Pre-fetch items'),
-      '#description' => t('Fetch items during the parsing stage. Items will only be processed when property data is available. The only reason to turn this off is to save HTTP requests when using "Do not update existing nodes" for the processor.'),
+      '#description' => t('Fetch property data during the parsing stage. Items will only be processed when property data is available. Disabling this allows items without property data to still be imported, which can sometimes be desirable i.e. when linked data is not being served correctly.'),
       '#default_value' => $this->config['pre_fetch'],
     );
     $form['retries'] = array(
       '#type' => 'textfield',
       '#title' => t('Retry limit'),
-      '#description' => t('How many items to retry failed requests for URIs.'),
+      '#description' => t('How many times to retry failed requests for URIs.'),
       '#default_value' => $this->config['retries'],
       '#size' => 3,
     );
@@ -207,6 +302,23 @@ class LdImportParser extends FeedsParser {
       '#description' => t('Amount of time, in seconds, to wait for linked data requests.'),
       '#default_value' => $this->config['timeout'],
       '#size' => 3,
+    );
+    $form['debug'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Debug'),
+      '#description' => t('Add extra debug information to the Feeds log.'),
+      '#default_value' => $this->config['debug'],
+    );
+    $form['debug_properties'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Debug properties'),
+      '#description' => t('Add extra debug information to the Feeds log while retrieving property data. This can substantially bloat the log.'),
+      '#default_value' => $this->config['debug_properties'],
+      '#states' => array(
+        'visible' => array(
+          '#edit-debug' => array('checked' => TRUE),
+        ),
+      ),
     );
     return $form;
   }
@@ -219,6 +331,88 @@ class LdImportParser extends FeedsParser {
     if (!is_numeric($batch_limit) || intval($batch_limit) != $batch_limit || $batch_limit <= 0) {
       form_set_error('batch_limit', t('Only positive integers are allowed.'));
     }
+  }
+
+  /**
+   * Ensures data is encoded properly to avoid SQL errors.
+   *
+   * @see https://www.drupal.org/node/1428272#comment-7349918
+   */
+  private function convertEncoding($data) {
+    if (extension_loaded('mbstring')) {
+      $data = mb_convert_encoding($data, 'UTF-8', 'UTF-8');
+    }
+    return $data;
+  }
+
+  /**
+   * Consolidates config for Graphite.
+   */
+  private function setGraphiteConfig(Graphite $graph) {
+    $graph->setLang($GLOBALS['language']->language);
+    $graph->setARC2Config(array('reader_timeout' => $this->config['timeout']));
+
+    // Set up filesystem cache.
+    if ($this->config['use_caching']) {
+      $seconds = $this->config['cache_time'];
+      if (!is_numeric($seconds) && strtotime($seconds)) {
+        $seconds = strtotime($seconds) - time();
+      }
+      $cache_directory = file_directory_temp() . '/graphite';
+      file_prepare_directory($cache_directory, FILE_CREATE_DIRECTORY);
+      $graph->cacheDir($cache_directory, (int) $seconds);
+    }
+  }
+
+  /**
+   * Wraps Graphite::load() so that we can capture errors and log cache hits.
+   */
+  private function loadAndLog(Graphite_Resource $resource, FeedsSource $source, $debug = FALSE) {
+    $uri = $resource->toString();
+    $graph = $resource->g;
+
+    // Log whether or not Graphite will be hitting the filesystem cache.
+    // @see Graphite_Retriever::retrieve()
+    if ($debug && !empty($graph->cacheDir)) {
+      $filename = $graph->cacheDir . '/' . md5($graph->removeFragment($uri));
+      if (file_exists($filename)) {
+        if (filemtime($filename) + $graph->cacheAge > time()) {
+          $message = t('Cached RDF available for %uri - no HTTP request will be made.', array('%uri' => $uri));
+        }
+        else {
+          $message = t('Cached RDF exists for %uri - it has expired, new data will be requested.', array('%uri' => $uri));
+        }
+      }
+      else {
+        $message = t('Making HTTP request for %uri', array('%uri' => $uri));
+      }
+      $source->log('import', $message, array(), WATCHDOG_DEBUG);
+    }
+
+    // Graphite has no real debugging. This is the only way we can capture
+    // HTTP request errors.
+    ob_start();
+
+    // Make HTTP request or load from cache.
+    $triples = $resource->load();
+
+    $errors = ob_get_contents();
+
+    ob_end_clean();
+
+    // Log success.
+    if ($debug && $triples) {
+      $message = t('Successfully retrieved @count triples for %uri', array('%uri' => $uri, '@count' => $triples));
+      $source->log('import', $message, array(), WATCHDOG_DEBUG);
+    }
+    // Log failure.
+    elseif (!$triples) {
+      $errors = ($errors) ? $errors : 'No error message';
+      $message = t('Failed to retrieve data for %uri - errors from Graphite library: !errors', array('%uri' => $uri, '!errors' => $errors));
+      $source->log('import', $message, array(), WATCHDOG_ERROR);
+    }
+
+    return !empty($triples) ? TRUE : FALSE;
   }
 }
 

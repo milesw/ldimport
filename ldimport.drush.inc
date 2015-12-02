@@ -10,23 +10,23 @@
 /**
  * Implements hook_drush_command().
  */
-function ldimport_drush_command() {
-  $items['ldimport-download'] = array(
-    'callback' => 'ldimport_drush_libraries_download',
-    'description' => dt('Downloads the required ARC2 library from http://github.com/semsol/arc2'),
-  );
-  return $items;
-}
+// function ldimport_drush_command() {
+//   $items['ldimport-download'] = array(
+//     'callback' => 'ldimport_drush_libraries_download',
+//     'description' => dt('Downloads the required ARC2 library from http://github.com/semsol/arc2'),
+//   );
+//   return $items;
+// }
 
 /**
  * Implementation of hook_drush_help().
  */
-function ldimport_drush_help($section) {
-  switch ($section) {
-    case 'drush:ldimport-download':
-      return dt('Downloads the required ARC2 library from http://github.com/semsol/arc2');
-  }
-}
+// function ldimport_drush_help($section) {
+//   switch ($section) {
+//     case 'drush:ldimport-download':
+//       return dt('Downloads the required ARC2 library from http://github.com/semsol/arc2');
+//   }
+// }
 
 /**
  * Drush command callback for 'ldimport-install'.
