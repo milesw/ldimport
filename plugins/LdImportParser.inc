@@ -129,13 +129,9 @@ class LdImportParser extends FeedsParser {
   public function extractPropertyValues(Graphite_Resource $item, $predicates, FeedsSource $source) {
     $debug = $this->config['debug'] && $this->config['debug_properties'];
 
-    // Ensure data has been loaded. It might not if pre_fetch was disabled.
-    // But if we've already fetched data don't bother logging again.
-    $postpone_requests = empty($this->config['pre_fetch']);
-    if (!$postpone_requests) {
-      $item->load();
-    }
-    else {
+    // If data has not been loaded for this resource do it now. This was likely
+    // because pre_fetch was disabled.
+    if (!$item->g->loaded($item->toString())) {
       $this->loadAndLog($item, $source, $this->config['debug']);
     }
 
